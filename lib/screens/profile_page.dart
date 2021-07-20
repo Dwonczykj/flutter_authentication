@@ -35,7 +35,7 @@ class _ProfilePageState extends State<ProfilePage> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'NAME: ${_currentUser.displayName}',
+              'DISPLAY NAME: ${_currentUser.displayName}',
               style: Theme.of(context).textTheme.bodyText1,
             ),
             SizedBox(height: 16.0),
