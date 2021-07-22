@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_authentication/screens/feed.dart';
+import 'package:flutter_authentication/screens/home_page.dart';
 import 'package:flutter_authentication/screens/profile_page.dart';
 import 'package:flutter_authentication/screens/register_page.dart';
 import 'package:flutter_authentication/utils/fire_auth.dart';
@@ -31,9 +32,7 @@ class _LoginPageState extends State<LoginPage> {
     if (user != null) {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
-          builder: (context) => ProfilePage(
-            user: user,
-          ),
+          builder: (context) => HomePage(),
         ),
       );
     }
