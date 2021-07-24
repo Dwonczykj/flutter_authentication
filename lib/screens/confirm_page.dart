@@ -1,135 +1,142 @@
 import 'dart:io';
 
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_authentication/classes/skew.dart';
 import 'package:flutter_authentication/utils/db_variables.dart';
 import 'package:flutter_authentication/utils/variables.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:video_player/video_player.dart';
-
-//import 'package:flutter_video_compress/flutter_video_compress.dart';
+import 'package:uuid/uuid.dart';
 import 'package:video_compress/video_compress.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 class ConfirmPage extends StatefulWidget {
-  final File videofile;
-  final String videopath_astring;
+  final File mediafile;
+  final String mediapath_astring;
   final ImageSource imageSource;
-  final User user;
+  final String? OriginalMediaId;
 
-  ConfirmPage(this.videofile, this.videopath_astring, this.imageSource, {required this.user});
+  const ConfirmPage(this.mediafile, this.mediapath_astring, this.imageSource,
+      {this.OriginalMediaId});
+
   @override
   _ConfirmPageState createState() => _ConfirmPageState();
 }
 
 class _ConfirmPageState extends State<ConfirmPage> {
-  late VideoPlayerController controller;
-  bool isuploading = false;
-  late User _currentUser;
   TextEditingController musicontroller = TextEditingController();
   TextEditingController captioncontroller = TextEditingController();
-  // FlutterVideoCompress flutterVideoCompress = FlutterVideoCompress();
+  bool isUploading = false;
+  Uuid productUuid = Uuid();
+  late User _currentUser;
+  // TODO: Perhaps find some sort of ImageEdittingController to use for editting and uploading the image.
+
   @override
   void initState() {
-    _currentUser = widget.user;
     super.initState();
-    setState(() {
-      controller = VideoPlayerController.file(widget.videofile);
-    });
-    controller.initialize();
-    controller.play();
-    controller.setVolume(1);
-    controller.setLooping(true);
-    print(widget.videopath_astring);
+    _currentUser != FirebaseAuth.instance.currentUser;
+    // setState(() {
+    //   controller = VideoPlayerController.file(widget.videofile);
+    // });
+    // controller.initialize();
+    // controller.play();
+    // controller.setVolume(1);
+    // controller.setLooping(true);
+    print(widget.mediapath_astring);
   }
 
   @override
   void dispose() {
     super.dispose();
-    controller.dispose();
-  }
-
-  compressvideo() async {
-    if (widget.imageSource == ImageSource.gallery) {
-      return widget.videofile;
-    } else {
-      // final compressedvideo = await flutterVideoCompress.compressVideo(
-      //     widget.videopath_astring,
-      //     quality: VideoQuality.MediumQuality);
-      final MediaInfo? mediaInfo = await VideoCompress.compressVideo(
-          widget.videopath_astring,
-          quality: VideoQuality.MediumQuality, 
-          deleteOrigin: false, // It's false by default
-        );
-      return mediaInfo != null ? File(mediaInfo.path ?? "") : null;
-    }
-  }
-
-  getpreviewimage() async {
-    final previewimage = await VideoCompress.getFileThumbnail(
-      widget.videopath_astring,
-    );
-    return previewimage;
-  }
-
-  uploadvideotostorage(String id) async {
-    UploadTask storageUploadTask =
-        videosfolder.child(id).putFile(await compressvideo());
-    TaskSnapshot storageTaskSnapshot =
-        await storageUploadTask.whenComplete(() {});
-    String downloadurl = await storageTaskSnapshot.ref.getDownloadURL();
-    return downloadurl;
+    // controller.dispose();
   }
 
   uploadimagetostorage(String id) async {
     UploadTask storageUploadTask =
-        imagesfolder.child(id).putFile(await getpreviewimage());
+        imagesfolder.child(id).putFile(widget.mediafile);
     TaskSnapshot storageTaskSnapshot =
         await storageUploadTask.whenComplete(() {});
     String downloadurl = await storageTaskSnapshot.ref.getDownloadURL();
     return downloadurl;
   }
 
-  uploadvideo() async {
+  uploadProduct() async {
     setState(() {
-      isuploading = true;
+      isUploading = true;
     });
+
     try {
       var firebaseuseruid = FirebaseAuth.instance.currentUser!.uid;
       DocumentSnapshot userdoc =
           await usercollection.doc(firebaseuseruid).get();
-      var alldocs = await videoscollection.get();
-      int length = alldocs.docs.length;
-      String video = await uploadvideotostorage("Video $length");
-      String previewimage = await uploadimagetostorage("Video $length");
+      String id = productIdFromUuid(productUuid);
+      String productImgUrl = await uploadimagetostorage(id);
       if (userdoc.data() != null) {
         //var userdata = userdoc.data()!;
-        videoscollection.doc("Video $length").set({
+        Map<String, dynamic> newProduct = {
           'username': _currentUser.displayName,
           'uid': firebaseuseruid,
           'profilepic': _currentUser.photoURL,
-          'id': "Video $length",
+          'id': id,
           'likes': [],
           'commentcount': 0,
           'sharecount': 0,
           'songname': musicontroller.text,
           'caption': captioncontroller.text,
-          'videourl': video,
-          'previewimage': previewimage
-        });
+          'producturl': productImgUrl,
+          'originalproductid': widget.OriginalMediaId,
+          'children': []
+        };
+        if (widget.OriginalMediaId != null) {
+          DocumentSnapshot<SkewServiceModel> originalProduct =
+              await skewscollection
+                  .doc(widget.OriginalMediaId)
+                  .withConverter<SkewServiceModel>(
+                      fromFirestore: (snapshot, _) =>
+                          SkewServiceModel.fromJson(snapshot.data()!),
+                      toFirestore: (skewModel, _) => skewModel.toJson())
+                  .get();
+          skewscollection
+              .doc(widget.OriginalMediaId)
+              .update({
+                ...originalProduct.data()!.toJson(),
+                ...{
+                  'children': [...originalProduct.data()!.children, newProduct]
+                }
+              })
+              .then((v) => v)
+              .catchError((error) {
+                displayErrorToAdminsFailedToUsers(error);
+              });
+        } else {
+          skewscollection.doc().set(newProduct);
+        }
       }
 
       Navigator.pop(context);
     } catch (e) {
       print(e);
     }
+
+    
+
+    // UploadTask storageUploadTask =
+    //     imagesfolder.child(id).putFile(widget.mediafile);
+    // TaskSnapshot storageTaskSnapshot =
+    //     await storageUploadTask.whenComplete(() {});
+    // String downloadurl = await storageTaskSnapshot.ref.getDownloadURL();
+    // return downloadurl;
+  }
+
+  displayErrorToAdminsFailedToUsers(error) {
+    print(error.toString());
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: isuploading == true
+      body: isUploading == true
           ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -146,7 +153,15 @@ class _ConfirmPageState extends State<ConfirmPage> {
                   Container(
                     width: MediaQuery.of(context).size.width,
                     height: MediaQuery.of(context).size.height / 1.5,
-                    child: VideoPlayer(controller),
+                    child: Container(
+                      height: 180,
+                      width: 120,
+                      decoration: BoxDecoration(
+                          image: DecorationImage(
+                              image: AssetImage(widget.mediapath_astring),
+                              fit: BoxFit.fill),
+                          shape: BoxShape.circle),
+                    ),
                   ),
                   SizedBox(
                     height: 20,
@@ -193,19 +208,38 @@ class _ConfirmPageState extends State<ConfirmPage> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      RaisedButton(
-                        onPressed: () => uploadvideo(),
-                        color: Colors.lightBlue,
+                      ElevatedButton(
+                        onPressed: () => uploadProduct(),
+                        style: ButtonStyle(
+                          backgroundColor:
+                              MaterialStateProperty.resolveWith<Color>(
+                            (Set<MaterialState> states) {
+                              if (states.contains(MaterialState.pressed))
+                                return Colors.green;
+                              return Colors
+                                  .lightBlue; // Use the component's default.
+                            },
+                          ),
+                          textStyle: mystyle(20, Colors.white),
+                        ),
                         child: Text(
-                          "Upload Video",
+                          "Upload Product",
                           style: mystyle(20, Colors.white),
                         ),
                       ),
-                      RaisedButton(
+                      ElevatedButton(
                         onPressed: () => Navigator.pop(context),
-                        color: Colors.red,
+                        style: ButtonStyle(
+                          backgroundColor:
+                              MaterialStateProperty.resolveWith<Color>(
+                            (Set<MaterialState> states) {
+                              return Colors.red;
+                            },
+                          ),
+                          textStyle: mystyle(20, Colors.white),
+                        ),
                         child: Text(
-                          "Another Video",
+                          "Back",
                           style: mystyle(20, Colors.white),
                         ),
                       ),
